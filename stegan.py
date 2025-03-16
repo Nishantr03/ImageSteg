@@ -1,92 +1,105 @@
 from tkinter import Tk, Label, Button, filedialog, Entry, messagebox, Frame
-from PIL import Image
-import os
+import numpy as np
+import cv2
 
-# Encryption/Decryption Functions
+# 🔹 Encrypt & Decrypt Functions
 def encrypt_message(message, shift=3):
     return ''.join(chr((ord(char) - 32 + shift) % 95 + 32) for char in message)
 
 def decrypt_message(encrypted_message, shift=3):
     return ''.join(chr((ord(char) - 32 - shift) % 95 + 32) for char in encrypted_message)
 
-# Encoding Function
-def encode_image(image_path, message):
-    encrypted_message = encrypt_message(message)
-    img = Image.open(image_path)
+# 🔹 Convert text to binary
+def text_to_binary(text):
+    return ''.join(format(ord(char), '08b') for char in text)
 
-    binary_message = ''.join(format(ord(char), '08b') for char in encrypted_message) + '11111111'
+# 🔹 Convert binary to text
+def binary_to_text(binary_data):
+    chars = [binary_data[i:i+8] for i in range(0, len(binary_data), 8)]
+    return ''.join(chr(int(c, 2)) for c in chars if len(c) == 8)
 
-    if len(binary_message) > img.width * img.height * 3:
-        raise ValueError("Message is too large for the image")
+# 🔹 **DCT Encoding Function (Fixed & Debugged)**
+def encode_image_dct(image_path, message):
+    encrypted_message = encrypt_message(message) + '###'  # Append delimiter
+    binary_message = text_to_binary(encrypted_message)
 
-    data_index = 0
-    for y in range(img.height):
-        for x in range(img.width):
-            pixel = list(img.getpixel((x, y)))
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    h, w = img.shape
 
-            for i in range(3):
-                if data_index < len(binary_message):
-                    pixel[i] = pixel[i] & ~1 | int(binary_message[data_index])
-                    data_index += 1
+    if len(binary_message) > (h * w) // 64:
+        raise ValueError("Message too large to encode in this image")
 
-            img.putpixel((x, y), tuple(pixel))
+    print(f"🔹 Encoding {len(binary_message)} bits into image of size {h}x{w}")
 
-    encoded_path = 'encoded_image.png'
-    img.save(encoded_path)
+    idx = 0
+    for i in range(0, h - 8, 8):
+        for j in range(0, w - 8, 8):
+            if idx >= len(binary_message):
+                break
+
+            block = np.float32(img[i:i+8, j:j+8])
+            dct_block = cv2.dct(block)
+
+            bit = int(binary_message[idx])
+            coeff = dct_block[4, 4]
+
+            # 🔹 More Reliable Bit Embedding
+            new_coeff = int(np.round(coeff))
+            if bit == 1:
+                new_coeff |= 1  # Set LSB to 1
+            else:
+                new_coeff &= ~1  # Set LSB to 0
+
+            dct_block[4, 4] = float(new_coeff)  # Convert back to float
+            img[i:i+8, j:j+8] = cv2.idct(dct_block)
+            idx += 1
+
+    encoded_path = 'encoded_dct_image.png'
+    cv2.imwrite(encoded_path, img, [cv2.IMWRITE_PNG_COMPRESSION, 0])  # Lossless PNG
+    print(f"✅ Encoding complete. Saved as {encoded_path}")
     return encoded_path
 
-# Decoding Function
-def decode_image(image_path):
-    try:
-        img = Image.open(image_path)
-    except Exception as e:
-        raise ValueError(f"Error opening image: {e}")
+# 🔹 **DCT Decoding Function (Fully Debugged)**
+def decode_image_dct(image_path):
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    h, w = img.shape
+    binary_message = ""
+    max_bits = (h * w) // 64  # Max possible bits to prevent infinite loop
 
-    binary_message = ''
-    for y in range(img.height):
-        for x in range(img.width):
-            pixel = img.getpixel((x, y))
-            for i in range(3):  # Extract LSBs of RGB components
-                binary_message += str(pixel[i] & 1)
+    print(f"🔹 Decoding image of size {h}x{w}")
 
-    # Check if the delimiter exists
-    if '11111111' not in binary_message:
-        raise ValueError("No hidden data found in the image")
+    for i in range(0, h - 8, 8):
+        for j in range(0, w - 8, 8):
+            block = np.float32(img[i:i+8, j:j+8])
+            dct_block = cv2.dct(block)
 
-    # Extract binary data up to the delimiter
-    binary_message = binary_message.split('11111111')[0]
+            coeff = dct_block[4, 4]
+            extracted_bit = int(np.round(coeff)) & 1  # Extract LSB
+            binary_message += str(extracted_bit)
 
-    # Convert binary data to text
-    try:
-        message = ''.join(chr(int(binary_message[i:i+8], 2)) for i in range(0, len(binary_message), 8))
-    except ValueError:
-        raise ValueError("Error decoding binary message. Data might be corrupt or incomplete.")
+            # 🔹 Debugging: Print every 8-bit chunk
+            if len(binary_message) % 8 == 0:
+                last_char = binary_to_text(binary_message[-8:])
+                print(f"Extracted Bits: {binary_message[-8:]} -> '{last_char}'")
 
-    return decrypt_message(message)
+                extracted_text = binary_to_text(binary_message)
+                if "###" in extracted_text:
+                    extracted_text = extracted_text.split("###")[0]
+                    print(f"✅ Decoded Binary: {binary_message}")
+                    print(f"✅ Decoded Encrypted Text: {extracted_text}")
+                    return decrypt_message(extracted_text)
 
-# Steganalysis Function
-def detect_hidden_data(image_path):
-    try:
-        img = Image.open(image_path)
-    except Exception as e:
-        raise ValueError(f"Error opening image: {e}")
+            # 🔹 Prevent Infinite Loop
+            if len(binary_message) > max_bits:
+                print("❌ Stopping: Exceeded max expected bits")
+                break
 
-    binary_message = ''
-    for y in range(img.height):
-        for x in range(img.width):
-            pixel = img.getpixel((x, y))
-            for i in range(3):  # Extract LSBs of RGB components
-                binary_message += str(pixel[i] & 1)
+    return "Decoding failed: No valid message found."
 
-    # Check for the delimiter `11111111` in binary message
-    if '11111111' in binary_message:
-        return True
-    return False
-
-# GUI Functions
+# 🔹 GUI Functions
 def select_file():
-    file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg")])
-    return file_path
+    return filedialog.askopenfilename(filetypes=[("Image Files", "*.png")])
+
 
 def encode_gui():
     file_path = select_file()
@@ -97,40 +110,29 @@ def encode_gui():
         messagebox.showwarning("Error", "Please enter a message to encode!")
         return
     try:
-        encoded_path = encode_image(file_path, message)
+        encoded_path = encode_image_dct(file_path, message)
         messagebox.showinfo("Success", f"Message encoded! Saved as {encoded_path}")
     except Exception as e:
         messagebox.showerror("Error", str(e))
+
 
 def decode_gui():
     file_path = select_file()
     if not file_path:
         return
     try:
-        decoded_message = decode_image(file_path)
+        decoded_message = decode_image_dct(file_path)
         messagebox.showinfo("Decoded Message", f"Decoded Message: {decoded_message}")
     except ValueError as ve:
         messagebox.showwarning("Decoding Failed", str(ve))
     except Exception as e:
         messagebox.showerror("Error", f"Unexpected error: {str(e)}")
 
-def steganalysis_gui():
-    file_path = select_file()
-    if not file_path:
-        return
-    try:
-        hidden_data_present = detect_hidden_data(file_path)
-        if hidden_data_present:
-            messagebox.showinfo("Steganalysis Result", "Hidden data is present in this image.")
-        else:
-            messagebox.showinfo("Steganalysis Result", "No hidden data found in this image.")
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
 
-# GUI Layout
+# 🔹 GUI Layout
 def setup_gui():
     root = Tk()
-    root.title("Image Steganography Tool")
+    root.title("DCT-Based Image Steganography Tool")
     root.geometry("500x450")
     root.resizable(False, False)
 
@@ -150,7 +152,6 @@ def setup_gui():
     # Buttons
     Button(root, text="Encode Message", font=("Helvetica", 12), bg="#3498db", fg="#ffffff", command=encode_gui).pack(pady=10)
     Button(root, text="Decode Message", font=("Helvetica", 12), bg="#2ecc71", fg="#ffffff", command=decode_gui).pack(pady=10)
-    Button(root, text="Detect Hidden Data", font=("Helvetica", 12), bg="#e67e22", fg="#ffffff", command=steganalysis_gui).pack(pady=10)
 
     # Footer
     footer = Label(root, text="Developed by Nishant", font=("Helvetica", 10), bg="#34495e", fg="#ecf0f1", pady=5)
@@ -158,5 +159,6 @@ def setup_gui():
 
     root.mainloop()
 
-# Run the GUI
+
+# 🔹 Run the GUI
 setup_gui()
