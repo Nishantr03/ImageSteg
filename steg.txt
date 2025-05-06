@@ -35,7 +35,9 @@ class DCTSteganographyApp:
         if not image_path:
             return
 
-        message = simpledialog.askstring("Input", "Enter the message to encode:")
+        message = simpledialog.askstring(
+            "Input", "Enter the message to encode:"
+        )
         if not message:
             return
 
