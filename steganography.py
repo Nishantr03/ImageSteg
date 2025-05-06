@@ -1,3 +1,4 @@
+#this is the old code without automation
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 from PIL import Image
