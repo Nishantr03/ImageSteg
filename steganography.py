@@ -11,24 +11,30 @@ class DCTSteganographyApp:
         self.root.title("DCT Steganography")
         self.root.geometry("400x200")
 
-        self.label = tk.Label(root, text="DCT Steganography", font=("Arial", 16))
+        self.label = tk.Label(
+            root, text="DCT Steganography", font=(
+                "Arial", 16))
         self.label.pack(pady=10)
 
-        self.encode_button = tk.Button(root, text="Encode Message", command=self.encode_message)
+        self.encode_button = tk.Button(
+            root, text="Encode Message", command=self.encode_message)
         self.encode_button.pack(pady=5)
 
-        self.decode_button = tk.Button(root, text="Decode Message", command=self.decode_message)
+        self.decode_button = tk.Button(
+            root, text="Decode Message", command=self.decode_message)
         self.decode_button.pack(pady=5)
 
         self.exit_button = tk.Button(root, text="Exit", command=root.quit)
         self.exit_button.pack(pady=5)
 
     def encode_message(self):
-        image_path = filedialog.askopenfilename(title="Select an Image to Encode")
+        image_path = filedialog.askopenfilename(
+            title="Select an Image to Encode")
         if not image_path:
             return
 
-        message = simpledialog.askstring("Input", "Enter the message to encode:")
+        message = simpledialog.askstring(
+            "Input", "Enter the message to encode:")
         if not message:
             return
 
@@ -41,19 +47,22 @@ class DCTSteganographyApp:
             )
             if save_path:
                 cv2.imwrite(save_path, stego_image)
-                messagebox.showinfo("Success", "Message encoded and image saved successfully!")
+                messagebox.showinfo(
+                    "Success", "Message encoded and image saved successfully!")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
     def decode_message(self):
-        image_path = filedialog.askopenfilename(title="Select an Image to Decode")
+        image_path = filedialog.askopenfilename(
+            title="Select an Image to Decode")
         if not image_path:
             return
 
         try:
             image = cv2.imread(image_path)
             decoded_message = self.dct_decode(image)
-            messagebox.showinfo("Decoded Message", f"The decoded message is: {decoded_message}")
+            messagebox.showinfo("Decoded Message",
+                                f"The decoded message is: {decoded_message}")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
