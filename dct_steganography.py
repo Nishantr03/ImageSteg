@@ -1,191 +1,125 @@
-#11
-import os
-import cv2
+import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog
+from PIL import Image
 import numpy as np
-from bitarray import bitarray
+import cv2
 
-class DCTSteganography:
-    @staticmethod
-    def dct_encode(image, message):
-        # Convert message to binary with 16-bit length header
-        ba = bitarray()
-        ba.frombytes(message.encode('utf-8'))
-        binary_data = ba.tolist()
-        msg_len = [int(b) for b in format(len(binary_data), '016b')]
-        binary_data = msg_len + binary_data
-        
-        # Convert to YCrCb and work on Y channel
+
+class DCTSteganographyApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("DCT Steganography")
+        self.root.geometry("400x200")
+
+        self.label = tk.Label(
+            root, text="DCT Steganography", font=(
+                "Arial", 16))
+        self.label.pack(pady=10)
+
+        self.encode_button = tk.Button(
+            root, text="Encode Message", command=self.encode_message)
+        self.encode_button.pack(pady=5)
+
+        self.decode_button = tk.Button(
+            root, text="Decode Message", command=self.decode_message)
+        self.decode_button.pack(pady=5)
+
+        self.exit_button = tk.Button(root, text="Exit", command=root.quit)
+        self.exit_button.pack(pady=5)
+
+    def encode_message(self):
+        image_path = filedialog.askopenfilename(
+            title="Select an Image to Encode")
+        if not image_path:
+            return
+
+        message = simpledialog.askstring(
+            "Input", "Enter the message to encode:")
+        if not message:
+            return
+
+        try:
+            image = cv2.imread(image_path)
+            stego_image = self.dct_encode(image, message)
+
+            save_path = filedialog.asksaveasfilename(
+                defaultextension=".png", filetypes=[("PNG files", "*.png")]
+            )
+            if save_path:
+                cv2.imwrite(save_path, stego_image)
+                messagebox.showinfo(
+                    "Success", "Message encoded and image saved successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
+    def decode_message(self):
+        image_path = filedialog.askopenfilename(
+            title="Select an Image to Decode")
+        if not image_path:
+            return
+
+        try:
+            image = cv2.imread(image_path)
+            decoded_message = self.dct_decode(image)
+            messagebox.showinfo("Decoded Message",
+                                f"The decoded message is: {decoded_message}")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
+    def dct_encode(self, image, message):
         ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
         y, cr, cb = cv2.split(ycrcb)
-        
-        block_size = 8
-        h, w = y.shape
-        data_index = 0
-        
-        # Calculate available blocks
-        available_blocks = (h // block_size) * (w // block_size)
-        needed_blocks = len(binary_data)
-        
-        if needed_blocks > available_blocks:
-            raise ValueError(f"Message too large. Needs {needed_blocks} blocks, only {available_blocks} available")
-        
-        # Use multiple coefficients per block to increase capacity
-        coeff_positions = [(1,2), (2,1), (3,1), (2,2)]  # Good mid-frequency positions
-        
-        for i in range(0, h - block_size + 1, block_size):
-            for j in range(0, w - block_size + 1, block_size):
-                if data_index >= len(binary_data):
-                    break
-                
-                block = y[i:i+block_size, j:j+block_size].astype(np.float32)
-                dct_block = cv2.dct(block)
-                
-                # Embed in multiple coefficients per block
-                for pos in coeff_positions:
-                    if data_index >= len(binary_data):
-                        break
-                    
-                    coeff = dct_block[pos]
-                    if binary_data[data_index]:
-                        dct_block[pos] = coeff + 2.0 if coeff >= 0 else coeff - 2.0
-                    else:
-                        dct_block[pos] = coeff - 2.0 if coeff >= 0 else coeff + 2.0
-                    data_index += 1
-                
-                idct_block = cv2.idct(dct_block)
-                y[i:i+block_size, j:j+block_size] = np.clip(idct_block, 0, 255)
-        
-        stego_image = cv2.merge((y, cr, cb))
-        return cv2.cvtColor(stego_image, cv2.COLOR_YCrCb2BGR)
 
-    @staticmethod
-    def dct_decode(image):
+        # Convert message to binary
+        binary_message = ''.join(format(ord(char), '08b') for char in message)
+        binary_message += '1111111111111110'  # End delimiter
+
+        # Convert to float for DCT
+        y_float = np.float32(y)
+        dct_coeff = cv2.dct(y_float)
+
+        flat_dct = dct_coeff.flatten()
+        message_index = 0
+
+        for i in range(100, len(flat_dct), 50):  # Use mid-range frequencies
+            if message_index < len(binary_message):
+                bit = int(binary_message[message_index])
+                flat_dct[i] += (-0.02 if bit == 0 else 0.02)  # Embed bit
+                message_index += 1
+            else:
+                break
+
+        dct_coeff = np.reshape(flat_dct, dct_coeff.shape)
+        y_stego = cv2.idct(dct_coeff)
+        y_stego = np.uint8(np.clip(y_stego, 0, 255))
+
+        stego_image = cv2.merge((y_stego, cr, cb))
+        stego_image = cv2.cvtColor(stego_image, cv2.COLOR_YCrCb2BGR)
+        return stego_image
+
+    def dct_decode(self, image):
         ycrcb = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
         y, _, _ = cv2.split(ycrcb)
-        
-        block_size = 8
-        h, w = y.shape
-        data = bitarray()
-        
-        # Same coefficient positions as encoding
-        coeff_positions = [(1,2), (2,1), (3,1), (2,2)]
-        
-        # First read 16-bit length
-        len_bits = []
-        blocks_read = 0
-        bits_needed = 16
-        
-        for i in range(0, h - block_size + 1, block_size):
-            for j in range(0, w - block_size + 1, block_size):
-                if len(len_bits) >= bits_needed:
-                    break
-                
-                block = y[i:i+block_size, j:j+block_size].astype(np.float32)
-                dct_block = cv2.dct(block)
-                
-                # Read from coefficients
-                for pos in coeff_positions:
-                    if len(len_bits) >= bits_needed:
-                        break
-                    
-                    coeff = dct_block[pos]
-                    len_bits.append(1 if abs(coeff) % 2.0 > 1.0 else 0)
-        
-        try:
-            msg_len = int(''.join(map(str, len_bits)), 2)
-        except:
-            return "DECODING_ERROR_LENGTH"
-        
-        # Read message data
-        data = bitarray()
-        bits_read = 0
-        
-        for i in range(0, h - block_size + 1, block_size):
-            for j in range(0, w - block_size + 1, block_size):
-                if bits_read >= msg_len + bits_needed:
-                    break
-                
-                block = y[i:i+block_size, j:j+block_size].astype(np.float32)
-                dct_block = cv2.dct(block)
-                
-                for pos in coeff_positions:
-                    if bits_read < bits_needed:
-                        bits_read += 1
-                        continue
-                    if bits_read >= msg_len + bits_needed:
-                        break
-                    
-                    coeff = dct_block[pos]
-                    data.append(1 if abs(coeff) % 2.0 > 1.0 else 0)
-                    bits_read += 1
-        
-        try:
-            return data.tobytes().decode('utf-8')
-        except:
-            return "DECODING_ERROR_DATA"
 
-def test_single_image():
-    test_image_path = "images/20056.png"
-    test_message = "Abundance"
-    
-    if not os.path.exists(test_image_path):
-        print(f"❌ Test image not found: {test_image_path}")
-        return False
-    
-    image = cv2.imread(test_image_path)
-    if image is None:
-        print("❌ Failed to load test image")
-        return False
-    
-    print("\n=== Testing Parameters ===")
-    print(f"Image dimensions: {image.shape[1]}x{image.shape[0]}")
-    print(f"Original message: '{test_message}' (length: {len(test_message)} chars)")
-    
-    # Verify capacity
-    block_size = 8
-    available_bits = (image.shape[0]//block_size) * (image.shape[1]//block_size) * 4  # 4 coeffs/block
-    needed_bits = 16 + len(test_message) * 8  # 16-bit header + message
-    
-    print(f"Available bits: {available_bits}, Needed bits: {needed_bits}")
-    
-    if needed_bits > available_bits:
-        print(f"❌ Message too large for image. Try with shorter message or larger image.")
-        return False
-    
-    # Encode
-    try:
-        encoded = DCTSteganography.dct_encode(image, test_message)
-        cv2.imwrite("test_encoded.png", encoded, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-        print("✅ Encoding completed")
-    except Exception as e:
-        print(f"❌ Encoding failed: {str(e)}")
-        return False
-    
-    # Test memory decode
-    mem_decoded = DCTSteganography.dct_decode(encoded)
-    print(f"Memory decode: '{mem_decoded}'")
-    
-    # Test file decode
-    file_decoded = DCTSteganography.dct_decode(cv2.imread("test_encoded.png"))
-    print(f"File decode: '{file_decoded}'")
-    
-    # Verify
-    if mem_decoded == test_message and file_decoded == test_message:
-        print("✅ Test successful!")
-        return True
-    else:
-        print("\n❌ Test failed - Debugging Info:")
-        print(f"- Memory and file decodes match: {mem_decoded == file_decoded}")
-        
-        print("\n🛠️ Troubleshooting steps:")
-        print("1. Try with a larger image (at least 200x200 pixels)")
-        print("2. Try with a shorter test message (like 'test')")
-        print("3. Check if the image is truecolor (not palette-based)")
-        print("4. Try increasing the modulation value (currently 2.0) in dct_encode()")
-        return False
+        y_float = np.float32(y)
+        dct_coeff = cv2.dct(y_float)
+        flat_dct = dct_coeff.flatten()
+
+        binary_message = ''
+        for i in range(100, len(flat_dct), 50):
+            bit = '1' if flat_dct[i] > 0 else '0'
+            binary_message += bit
+            if binary_message[-16:] == '1111111111111110':
+                break
+
+        message = ''
+        for i in range(0, len(binary_message) - 16, 8):
+            message += chr(int(binary_message[i:i + 8], 2))
+
+        return message
+
 
 if __name__ == "__main__":
-    if test_single_image():
-        print("\nTest successful! Ready to process all images.")
-    else:
-        print("\nPlease fix the test case before proceeding.")
+    root = tk.Tk()
+    app = DCTSteganographyApp(root)
+    root.mainloop()
