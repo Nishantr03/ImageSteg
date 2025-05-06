@@ -10,7 +10,9 @@ class DCTSteganographyApp:
         self.root.title("DCT Steganography")
         self.root.geometry("400x200")
 
-        self.label = tk.Label(root, text="DCT Steganography", font=("Arial", 16))
+        self.label = tk.Label(
+            root, text="DCT Steganography", font=("Arial", 16)
+            )
         self.label.pack(pady=10)
 
         self.encode_button = tk.Button(
@@ -42,7 +44,8 @@ class DCTSteganographyApp:
             stego_image = self.dct_encode(image, message)
 
             save_path = filedialog.asksaveasfilename(
-                defaultextension=".png", filetypes=[("PNG files", "*.png")]
+                defaultextension=".png", 
+                filetypes=[("PNG files", "*.png")]
             )
             if save_path:
                 cv2.imwrite(save_path, stego_image)
