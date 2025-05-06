@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
-#from PIL import Image
 import numpy as np
 import cv2
 
