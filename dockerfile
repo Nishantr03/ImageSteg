@@ -1,23 +1,20 @@
-# Dockerfile
-FROM python:3.11-slim
+FROM python:3.10-slim
 
-# Install dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     python3-tk \
-    libglib2.0-0 \
-    libsm6 \
-    libxrender1 \
-    libxext6 \
+    tk-dev \
+    libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
-
-# Copy app files
 COPY . .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir opencv-python numpy pillow
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Run the app
-CMD ["python", "steganography.py"]
+# Create non-root user
+RUN useradd -m appuser && chown -R appuser /app
+USER appuser
+
+CMD ["python", "main.py"]
