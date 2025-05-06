@@ -77,7 +77,7 @@ class DCTSteganographyApp:
 
         # Convert message to binary
         binary_message = ''.join(format(ord(char), '08b') for char in message)
-        binary_message += '1111111111111110'  # End delimiter
+        binary_message += '1111111111111110'  #End delimiter
 
         # Convert to float for DCT
         y_float = np.float32(y)
